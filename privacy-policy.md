@@ -1,14 +1,3 @@
-# 개인정보처리방침 / Privacy Policy
-
-Play Console은 데이터를 하나도 수집하지 않는 앱에도 처리방침 **URL**을 요구한다.
-이 문서를 GitHub Pages 등 공개 주소에 게시하고 그 URL을 콘솔에 넣을 것.
-
-마지막 수정: 2026-08-09
-
----
-
-## 한국어
-
 ### 요약
 
 올그린은 개인정보를 수집하지 않습니다. 서버가 없고, 계정이 없고, 광고와 분석 도구가
@@ -59,7 +48,7 @@ Play Console은 데이터를 하나도 수집하지 않는 앱에도 처리방�
 
 ### 문의
 
-kimsoft@kimsoft.kr
+mail@kaitech.co.kr
 
 ---
 
@@ -117,4 +106,4 @@ ships with an app update.
 
 ### Contact
 
-kimsoft@kimsoft.kr
+mail@kaitech.co.kr
