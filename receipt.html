@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>영수증 URL 조회</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --border: #e2e5ea;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --err: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 6px; }
+  input[type=text], input[type=number] {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 180px; }
+  input[type=file] { font-size: 14px; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 20px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 14px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .notice {
+    background: #fff8e6;
+    border: 1px solid #f3dca0;
+    color: #8a6d1b;
+    font-size: 13px;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 18px;
+  }
+  .notice code { background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 4px; }
+  #progress { font-size: 14px; color: var(--muted); margin: 14px 0 6px; min-height: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #fafbfc; font-size: 12.5px; color: var(--muted); position: sticky; top: 0; }
+  td.num { color: var(--muted); width: 44px; }
+  td.key { font-family: ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+  a { color: var(--accent); word-break: break-all; }
+  .pending { color: var(--muted); }
+  .error { color: var(--err); }
+  .copybtn {
+    background: none; color: var(--accent); border: 1px solid var(--border);
+    padding: 3px 10px; font-size: 12px; font-weight: 500; margin: 0; border-radius: 6px;
+    cursor: pointer;
+  }
+  .toolbar { display:flex; justify-content: space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  .toolbar .count { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>영수증 URL 조회</h1>
+  <p class="sub">엑셀 파일 첫 번째 컬럼의 키값으로 API를 호출하여 결제 시각과 영수증 URL을 표로 보여줍니다.</p>
+
+  <div class="notice">
+    이 API는 <code>http</code> 주소입니다. 보안(https) 페이지에서는 브라우저가 http 호출을 차단하므로,
+    이 파일을 <b>PC에 저장해 직접 열거나</b>(file://) 사내망 http 환경에서 사용하세요.
+    호출이 전부 실패하면 서버의 CORS 허용 여부도 확인이 필요합니다.
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>엑셀 파일 (.xlsx / .xls / .csv)</label>
+        <input type="file" id="file" accept=".xlsx,.xls,.csv">
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px;">
+      <div>
+        <label>API 주소 (키는 sOrderKey 값으로 전달됩니다)</label>
+        <input type="text" id="apiBase" value="http://quick.kimsoft.kr:15013/Quickiyo/Iamport/CreditCard/GetPayResult?sOrderKey=">
+      </div>
+      <div style="max-width:150px; flex:0 0 150px;">
+        <label>동시 호출 수</label>
+        <input type="number" id="concurrency" value="5" min="1" max="20">
+      </div>
+    </div>
+    <button id="run" disabled>조회 시작</button>
+  </div>
+
+  <div id="progress"></div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <div class="toolbar">
+      <span class="count" id="count"></span>
+      <button class="copybtn" id="copyall" type="button">영수증 URL 전체 복사</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>sOrderKey</th>
+            <th>주문명 (name)</th>
+            <th>카드사 (card_name)</th>
+            <th>결제시각 (paid_at)</th>
+            <th>receipt_url</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  let keys = [];
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // ----- 엑셀 읽기: 첫 번째 컬럼의 키값 추출 -----
+  $("file").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
+      keys = [];
+      for (let i = 0; i < rows.length; i++) {
+        const cell = rows[i][0];
+        if (cell === undefined || cell === null) continue;
+        const v = String(cell).trim();
+        if (!v) continue;
+        // 헤더로 보이는 첫 줄(숫자/하이픈 형태가 아니면) 건너뜀
+        if (i === 0 && !/^[0-9]/.test(v)) continue;
+        keys.push(v);
+      }
+      $("progress").textContent = `키 ${keys.length}건을 읽었습니다.`;
+      $("run").disabled = keys.length === 0;
+    };
+    reader.readAsArrayBuffer(f);
+  });
+
+  // ----- JSON 안에서 특정 키를 깊이 탐색 -----
+  function deepFind(obj, names) {
+    if (obj == null || typeof obj !== "object") return undefined;
+    for (const k of Object.keys(obj)) {
+      if (names.includes(k) && obj[k] !== null && obj[k] !== "") return obj[k];
+    }
+    for (const k of Object.keys(obj)) {
+      const r = deepFind(obj[k], names);
+      if (r !== undefined) return r;
+    }
+    return undefined;
+  }
+
+  // ----- paid_at 값을 사람이 읽는 시각으로 -----
+  function formatPaidAt(v) {
+    if (v === undefined || v === null || v === "") return "";
+    let d;
+    if (typeof v === "number" || /^[0-9]+$/.test(String(v))) {
+      let n = Number(v);
+      if (n < 1e12) n *= 1000; // 초 단위면 ms로
+      d = new Date(n);
+    } else {
+      d = new Date(v);
+    }
+    if (isNaN(d.getTime())) return String(v);
+    const p = {};
+    new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+    }).formatToParts(d).forEach(x => p[x.type] = x.value);
+    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+  }
+
+  // ----- 단건 조회 -----
+  async function fetchOne(key, base) {
+    const url = base + encodeURIComponent(key);
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch { throw new Error("JSON 파싱 실패"); }
+    return {
+      receipt_url: deepFind(data, ["receipt_url", "receiptUrl"]),
+      paid_at: deepFind(data, ["paid_at", "paidAt"]),
+      card_name: deepFind(data, ["card_name", "cardName"]),
+      name: deepFind(data, ["name", "orderName", "order_name"]),
+    };
+  }
+
+  // ----- 전체 실행 (동시성 제한) -----
+  $("run").addEventListener("click", async () => {
+    const base = $("apiBase").value.trim();
+    const conc = Math.max(1, Math.min(20, Number($("concurrency").value) || 5));
+    $("run").disabled = true;
+    $("resultCard").style.display = "block";
+    const tbody = $("tbl").querySelector("tbody");
+    tbody.innerHTML = "";
+
+    // 행 미리 생성
+    const rowEls = keys.map((key, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="num">${i + 1}</td>
+        <td class="key">${key}</td>
+        <td class="name pending">대기중…</td>
+        <td class="card pending">대기중…</td>
+        <td class="paid pending">대기중…</td>
+        <td class="receipt pending">대기중…</td>`;
+      tbody.appendChild(tr);
+      return tr;
+    });
+
+    let done = 0, ok = 0, fail = 0;
+    const update = () => {
+      $("progress").textContent = `진행 ${done}/${keys.length}  ·  성공 ${ok}  ·  실패 ${fail}`;
+      $("count").textContent = `총 ${keys.length}건`;
+    };
+    update();
+
+    let idx = 0;
+    async function worker() {
+      while (idx < keys.length) {
+        const i = idx++;
+        const tr = rowEls[i];
+        const nameCell = tr.querySelector(".name");
+        const cardCell = tr.querySelector(".card");
+        const paidCell = tr.querySelector(".paid");
+        const recCell = tr.querySelector(".receipt");
+        try {
+          const r = await fetchOne(keys[i], base);
+          nameCell.className = "name";
+          nameCell.textContent = r.name ? String(r.name) : "-";
+          cardCell.className = "card";
+          cardCell.textContent = r.card_name ? String(r.card_name) : "-";
+          paidCell.className = "paid";
+          paidCell.textContent = formatPaidAt(r.paid_at) || "-";
+          recCell.className = "receipt";
+          if (r.receipt_url) {
+            const u = esc(String(r.receipt_url));
+            recCell.innerHTML = `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
+          } else {
+            recCell.textContent = "-";
+          }
+          ok++;
+        } catch (err) {
+          nameCell.className = "name error"; nameCell.textContent = "오류";
+          cardCell.className = "card error"; cardCell.textContent = "-";
+          paidCell.className = "paid error"; paidCell.textContent = "-";
+          recCell.className = "receipt error";
+          recCell.textContent = err.message || "호출 실패";
+          fail++;
+        }
+        done++;
+        update();
+      }
+    }
+    await Promise.all(Array.from({ length: conc }, worker));
+    $("progress").textContent = `완료 — 총 ${keys.length}건 · 성공 ${ok} · 실패 ${fail}`;
+    $("run").disabled = false;
+  });
+
+  // ----- 영수증 URL 전체 복사 -----
+  $("copyall").addEventListener("click", () => {
+    const links = Array.from($("tbl").querySelectorAll("tbody .receipt a")).map(a => a.href);
+    navigator.clipboard.writeText(links.join("\n")).then(() => {
+      $("copyall").textContent = `복사됨 (${links.length}건)`;
+      setTimeout(() => $("copyall").textContent = "영수증 URL 전체 복사", 1500);
+    });
+  });
+</script>
+</body>
+</html>
